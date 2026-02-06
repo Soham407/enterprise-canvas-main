@@ -197,6 +197,7 @@ export function GuardDashboard() {
     isLoading,
     error,
     gateLocation,
+    currentPosition,
     isClockedIn,
     todayAttendance,
     clockIn,
@@ -227,9 +228,9 @@ export function GuardDashboard() {
   const handlePanicRelease = async () => {
     const wasHeldLongEnough = endPanicHold();
     if (wasHeldLongEnough) {
-      // Get current position for the alert
-      const currentLat = gateLocation?.latitude;
-      const currentLng = gateLocation?.longitude;
+      // Use guard's real-time position if available, fallback to gate location
+      const currentLat = currentPosition?.latitude ?? gateLocation?.latitude;
+      const currentLng = currentPosition?.longitude ?? gateLocation?.longitude;
 
       const result = await triggerPanic({
         employeeId: MOCK_EMPLOYEE_ID,

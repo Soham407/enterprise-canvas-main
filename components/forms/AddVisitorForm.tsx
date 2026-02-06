@@ -45,6 +45,19 @@ export function AddVisitorForm({ onSuccess, onCancel }: AddVisitorFormProps) {
     loadFlats();
   }, []);
 
+  // Cleanup MediaStream on unmount or when camera is deactivated
+  useEffect(() => {
+    return () => {
+      // Cleanup function runs on unmount
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+        videoRef.current.srcObject = null;
+      }
+      setIsCameraActive(false);
+    };
+  }, []);
+
   async function loadFlats() {
     try {
       const { data, error } = await supabase
