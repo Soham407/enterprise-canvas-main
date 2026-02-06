@@ -208,13 +208,100 @@ export function useAttendance(employeeId?: string) {
     );
   }, []);
 
-  // Clock In action
-  const clockIn = useCallback(async (): Promise<boolean> => {
+  // Clock In action with shift enforcement
+  const clockIn = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     if (!employeeId || !state.isWithinRange || !state.gateLocation) {
-      return false;
+      return { success: false, error: "Location requirements not met" };
     }
 
     try {
+      // Step 1: Check if guard has an active shift assignment
+      const { data: assignmentData, error: assignmentError } = await supabase
+        .from("employee_shift_assignments")
+        .select(`
+          id,
+          shift_id,
+          shifts (
+            id,
+            shift_name,
+            start_time,
+            end_time,
+            grace_time_minutes,
+            is_night_shift
+          )
+        `)
+        .eq("employee_id", employeeId)
+        .eq("is_active", true)
+        .single();
+
+      if (assignmentError && assignmentError.code !== "PGRST116") {
+        throw assignmentError;
+      }
+
+      // Step 2: If no shift assigned, allow clock-in but log warning
+      let shiftValidation = { isValid: true, message: "" };
+
+      if (assignmentData && assignmentData.shifts) {
+        const shift = assignmentData.shifts as {
+          start_time: string;
+          end_time: string;
+          grace_time_minutes: number | null;
+          is_night_shift: boolean | null;
+          shift_name: string;
+        };
+
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+        // Parse shift times (format: "HH:MM:SS")
+        const [startH, startM] = shift.start_time.split(":").map(Number);
+        const [endH, endM] = shift.end_time.split(":").map(Number);
+        const startTotalMinutes = startH * 60 + startM;
+        const endTotalMinutes = endH * 60 + endM;
+        const graceMinutes = shift.grace_time_minutes || 15;
+
+        // Calculate allowed window (shift start - grace to shift end)
+        const earliestClockIn = startTotalMinutes - graceMinutes;
+        const latestClockIn = endTotalMinutes;
+
+        // Handle night shifts that cross midnight
+        const isNightShift = shift.is_night_shift || endTotalMinutes < startTotalMinutes;
+
+        let isWithinShiftWindow = false;
+
+        if (isNightShift) {
+          // Night shift: e.g., 20:00 to 06:00
+          // Valid if: currentTime >= (start - grace) OR currentTime <= end
+          isWithinShiftWindow =
+            currentTotalMinutes >= earliestClockIn ||
+            currentTotalMinutes <= latestClockIn;
+        } else {
+          // Day shift: e.g., 08:00 to 20:00
+          // Valid if: (start - grace) <= currentTime <= end
+          isWithinShiftWindow =
+            currentTotalMinutes >= earliestClockIn &&
+            currentTotalMinutes <= latestClockIn;
+        }
+
+        if (!isWithinShiftWindow) {
+          const shiftStartFormatted = `${String(startH).padStart(2, "0")}:${String(startM).padStart(2, "0")}`;
+          const shiftEndFormatted = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+          
+          return {
+            success: false,
+            error: `Cannot clock in outside shift hours. Your shift (${shift.shift_name}) is ${shiftStartFormatted} - ${shiftEndFormatted}. Grace period: ${graceMinutes} minutes before shift.`,
+          };
+        }
+
+        shiftValidation = {
+          isValid: true,
+          message: `Clocking in for ${shift.shift_name}`,
+        };
+      }
+
+      // Step 3: Create attendance record
       const now = new Date();
       const today = now.toISOString().split("T")[0];
 
@@ -237,13 +324,13 @@ export function useAttendance(employeeId?: string) {
         },
       }));
 
-      // Start GPS tracking after clock in
-      startGpsTracking();
+      // GPS tracking will be started by the useEffect watching isClockedIn state
 
-      return true;
-    } catch (err: any) {
+      return { success: true };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to clock in";
       console.error("Error clocking in:", err);
-      return false;
+      return { success: false, error: errorMessage };
     }
   }, [employeeId, state.isWithinRange, state.gateLocation]);
 
