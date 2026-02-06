@@ -23,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${publicSans.variable} ${outfit.variable} font-sans antialiased selection:bg-primary/10 selection:text-primary tracking-[0.01em]`} suppressHydrationWarning>
+      <body className={`${publicSans.variable} ${outfit.variable} font-sans antialiased selection:bg-primary/10 selection:text-primary tracking-[0.01em]`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

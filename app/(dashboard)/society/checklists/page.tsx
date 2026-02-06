@@ -4,7 +4,6 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { DataTable } from "@/components/shared/DataTable";
 import { Button } from "@/components/ui/button";
 import { 
-  Plus,
   ClipboardList, 
   CheckCircle2, 
   Lightbulb, 

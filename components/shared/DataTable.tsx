@@ -123,21 +123,8 @@ export function DataTable<TData, TValue>({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-[400px] text-center">
-                  <div className="flex flex-col items-center justify-center space-y-3 animate-in fade-in zoom-in-95 duration-500">
-                    <div className="h-16 w-16 rounded-full bg-muted/50 flex items-center justify-center mb-2">
-                       <Search className="h-8 w-8 text-muted-foreground/40" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold text-foreground">No records found</p>
-                      <p className="text-xs text-muted-foreground max-w-[200px] mx-auto">
-                        We couldn't find any data matching your request. Try adjusting your filters.
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm" className="mt-4 font-bold" onClick={() => table.resetColumnFilters()}>
-                      Clear all filters
-                    </Button>
-                  </div>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  No results.
                 </TableCell>
               </TableRow>
             )}

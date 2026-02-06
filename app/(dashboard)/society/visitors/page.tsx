@@ -13,17 +13,8 @@ import {
   DoorOpen, 
   Clock,
   CheckCircle2,
-  XCircle,
-  Search, 
-  Filter, 
-  Download, 
-  FileText, 
-  Package, 
-  User, 
-  Building, 
-  MapPin
+  XCircle
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

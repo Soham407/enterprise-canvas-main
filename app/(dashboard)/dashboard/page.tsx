@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Users, Building2, Package, Ticket, TrendingUp, AlertCircle, Clock, 
@@ -121,30 +121,30 @@ export default function DashboardPage() {
 // Sub-components for the main Admin View (re-purposed from original dashboard)
 function AdminView() {
   const stats = [
-    { title: "Total Employees", value: "1,248", change: "+12%", trend: "up", icon: Users, color: "text-white", bg: "bg-blue-600" },
-    { title: "Active Societies", value: "42", change: "+4", trend: "up", icon: Building2, color: "text-white", bg: "bg-emerald-600" },
-    { title: "Pending Tickets", value: "18", change: "-5", trend: "down", icon: Ticket, color: "text-white", bg: "bg-amber-600" },
-    { title: "Inventory Value", value: "₹4.2L", change: "+8.2%", trend: "up", icon: Package, color: "text-white", bg: "bg-purple-600" },
+    { title: "Total Employees", value: "1,248", change: "+12%", trend: "up", icon: Users, color: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/30" },
+    { title: "Active Societies", value: "42", change: "+4", trend: "up", icon: Building2, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
+    { title: "Pending Tickets", value: "18", change: "-5", trend: "down", icon: Ticket, color: "text-amber-600", bg: "bg-amber-100 dark:bg-amber-900/30" },
+    { title: "Inventory Value", value: "₹4.2L", change: "+8.2%", trend: "up", icon: Package, color: "text-purple-600", bg: "bg-purple-100 dark:bg-purple-900/30" },
   ];
 
   return (
     <div className="space-y-8 animate-fade-in">
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
             {stats.map((stat, index) => (
-              <Card key={stat.title} className="hover:shadow-lg transition-all border-none shadow-card premium-card-hover group cursor-pointer">
+              <Card key={stat.title} className="hover:shadow-lg transition-shadow border-none shadow-card">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
-                    <div className={cn("p-3 rounded-xl transition-transform group-hover:scale-110 duration-300 shadow-lg shadow-black/10", stat.bg)}>
+                    <div className={cn("p-3 rounded-xl", stat.bg)}>
                       <stat.icon className={cn("h-6 w-6", stat.color)} />
                     </div>
-                    <div className={cn("flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full", stat.trend === "up" ? "text-success bg-success/10" : "text-critical bg-critical/10")}>
+                    <div className={cn("flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full", stat.trend === "up" ? "text-success bg-success/10" : "text-critical bg-critical/10")}>
                       {stat.trend === "up" ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                       {stat.change}
                     </div>
                   </div>
                   <div className="mt-4 text-left">
-                    <h3 className="text-[11px] font-black uppercase text-muted-foreground tracking-[0.15em]">{stat.title}</h3>
-                    <div className="text-3xl font-bold mt-1 tracking-tight">{stat.value}</div>
+                    <h3 className="text-xs font-bold uppercase text-muted-foreground tracking-widest">{stat.title}</h3>
+                    <div className="text-3xl font-bold mt-1 ">{stat.value}</div>
                   </div>
                 </CardContent>
               </Card>
@@ -189,16 +189,10 @@ function AdminView() {
 }
 
 function AdminChart() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-
   const data = [
     { name: "Jan", value: 4000 }, { name: "Feb", value: 3000 }, { name: "Mar", value: 5000 }, 
     { name: "Apr", value: 4500 }, { name: "May", value: 6000 }, { name: "Jun", value: 5500 },
   ];
-
-  if (!mounted) return <div className="h-[300px] w-full bg-muted/5 animate-pulse rounded-xl" />;
-
   return (
     <div className="h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
