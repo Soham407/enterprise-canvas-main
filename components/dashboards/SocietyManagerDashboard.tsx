@@ -8,10 +8,23 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { usePanicAlertSubscription } from "@/hooks/usePanicAlertSubscription";
+import { useEmployeeProfileWithFallback } from "@/hooks/useEmployeeProfile";
 import { useToast } from "@/components/ui/use-toast";
+
+// Fallback for development/testing when not authenticated
+const DEV_MOCK_EMPLOYEE_ID = "11111111-1111-1111-1111-111111111111";
 
 export function SocietyManagerDashboard() {
   const { toast } = useToast();
+  
+  // Get authenticated manager profile (falls back to mock in dev)
+  const { 
+    employeeId, 
+    fullName: managerName,
+    isLoading: isProfileLoading, 
+    error: profileError 
+  } = useEmployeeProfileWithFallback(DEV_MOCK_EMPLOYEE_ID);
+
   const {
     alerts,
     unresolvedCount,
@@ -45,11 +58,24 @@ export function SocietyManagerDashboard() {
     });
   }, [onNewAlert, toast]);
 
+  // Check if we can resolve alerts (need valid employee ID)
+  const canResolve = !isProfileLoading && !!employeeId;
+
   // Handle resolve alert
   const handleResolve = async (alertId: string) => {
+    // Validate we have an employee ID before resolving
+    if (!employeeId) {
+      toast({
+        title: "Cannot Resolve Alert",
+        description: "Please log in to resolve alerts.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsResolving(alertId);
-    // In production, use auth context for resolved_by
-    const result = await resolveAlert(alertId, "00000000-0000-0000-0000-000000000000", "Resolved by Society Manager");
+    const resolutionNote = `Resolved by ${managerName || "Society Manager"}`;
+    const result = await resolveAlert(alertId, employeeId, resolutionNote);
     setIsResolving(null);
     
     if (result.success) {
@@ -103,9 +129,10 @@ export function SocietyManagerDashboard() {
                     setShowAlertPopup(false);
                     clearLatestAlert();
                   }}
-                  className="flex-1 bg-white text-critical hover:bg-white/90 font-bold"
+                  disabled={!canResolve}
+                  className="flex-1 bg-white text-critical hover:bg-white/90 font-bold disabled:opacity-50"
                 >
-                  Resolve Alert
+                  {!canResolve ? "Loading..." : "Resolve Alert"}
                 </Button>
                 <Button
                   variant="outline"
@@ -212,7 +239,7 @@ export function SocietyManagerDashboard() {
                   <Button
                     size="sm"
                     onClick={() => handleResolve(alert.id)}
-                    disabled={isResolving === alert.id}
+                    disabled={isResolving === alert.id || !canResolve}
                     className="bg-critical hover:bg-critical/90 gap-1"
                   >
                     {isResolving === alert.id ? (

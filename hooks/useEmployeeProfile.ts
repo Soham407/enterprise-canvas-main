@@ -107,17 +107,31 @@ export function useEmployeeProfile() {
         .eq("employee_id", userData.employee_id)
         .single();
 
-      // Guard error PGRST116 is okay - means user is not a guard
-      const guardInfo = guardError && guardError.code === "PGRST116" 
-        ? null 
-        : guardData;
+      // Handle guard query errors explicitly
+      let guardInfo: { id: string; guard_code: string } | null = null;
+      if (guardError) {
+        if (guardError.code === "PGRST116") {
+          // No rows found - user is not a guard, this is okay
+          guardInfo = null;
+        } else {
+          // Unexpected error - propagate it
+          throw guardError;
+        }
+      } else {
+        guardInfo = guardData;
+      }
+
+      // Safely construct fullName, handling null values
+      const firstName = employeeData.first_name || "";
+      const lastName = employeeData.last_name || "";
+      const fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
 
       setProfile({
         employeeId: userData.employee_id,
         guardId: guardInfo?.id || null,
         guardCode: guardInfo?.guard_code || null,
         employeeCode: employeeData.employee_code,
-        fullName: `${employeeData.first_name} ${employeeData.last_name}`,
+        fullName,
         role: (userData.roles as { role_name: string } | null)?.role_name || null,
         isLoading: false,
         error: null,
