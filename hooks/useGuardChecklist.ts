@@ -144,9 +144,10 @@ export function useGuardChecklist(employeeId: string | null) {
         .single();
 
       const existingResponses = (existing?.responses as Record<string, any>) || {};
+      const taskData = existingResponses[itemId] || { completed: false };
       const updatedResponses = {
         ...existingResponses,
-        [itemId]: { completed: true, completedAt: now },
+        [itemId]: { ...taskData, completed: true, completedAt: now },
       };
 
       if (existing) {

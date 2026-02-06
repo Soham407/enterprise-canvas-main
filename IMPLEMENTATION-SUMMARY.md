@@ -293,7 +293,7 @@ Exit code: 0
 8. `VISITOR-CHECKIN-IMPLEMENTATION.md` - Private storage docs ✅
 9. `SECURITY-IMPROVEMENTS.md` - Updated security status ✅
 
-### Created (5 files)
+### Created (4 files)
 
 1. `hooks/useAuth.tsx` - Authentication context & hook ✅
 2. `hooks/useResidentProfile.ts` - Resident profile hook ✅

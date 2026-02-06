@@ -85,9 +85,14 @@ function VisitorAvatar({
   // Fetch signed URL if photoUrl exists
   useEffect(() => {
     if (photoUrl) {
-      getSignedVisitorPhotoUrl(photoUrl).then((signedUrl) => {
-        if (signedUrl) setUrl(signedUrl);
-      });
+      getSignedVisitorPhotoUrl(photoUrl)
+        .then((signedUrl) => {
+          if (signedUrl) setUrl(signedUrl);
+        })
+        .catch((err) => {
+          console.error("Error fetching signed URL:", err);
+          setUrl(null);
+        });
     }
   }, [photoUrl]);
 
@@ -98,6 +103,7 @@ function VisitorAvatar({
           src={url} 
           alt={name} 
           className="h-full w-full object-cover" 
+          onError={() => setUrl(null)}
         />
       </div>
     );
