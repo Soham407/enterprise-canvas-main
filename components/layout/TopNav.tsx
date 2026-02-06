@@ -11,10 +11,15 @@ import {
   Settings,
   LogOut,
   Building2,
+  Plus,
+  Ticket,
+  Wrench,
+  Users,
   Moon,
   Sun,
   LayoutGrid,
 } from "lucide-react";
+import { CommandMenu } from "./CommandMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -128,21 +133,43 @@ export function TopNav({ onToggleSidebar, sidebarCollapsed }: TopNavProps) {
       </DropdownMenu>
 
       {/* Search */}
-      <div className="relative flex-1 max-w-lg hidden md:block">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Quick search... (Alt+K)"
-          className="pl-9 bg-muted/30 border-none focus-visible:ring-primary/20 transition-all focus-visible:bg-muted/50 rounded-full h-9 text-sm"
-        />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-          <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-            ⌥K
-          </kbd>
-        </div>
+      <div className="hidden md:block flex-1 max-w-lg">
+        <CommandMenu />
       </div>
 
       <div className="flex items-center gap-3 ml-auto">
         {/* Apps Launcher */}
+        {/* Quick Action */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="default" size="sm" className="hidden sm:flex gap-2 rounded-full h-9 px-4 shadow-lg shadow-primary/20 animate-in fade-in zoom-in-95 font-bold">
+              <Plus className="h-4 w-4" />
+              <span>Create</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 p-2 animate-in fade-in slide-in-from-top-2">
+             <DropdownMenuLabel className="text-[11px] uppercase tracking-widest text-muted-foreground py-2 px-3 font-bold">Operational Actions</DropdownMenuLabel>
+             <DropdownMenuItem className="gap-2 py-2.5">
+                <Ticket className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Incident Ticket</span>
+             </DropdownMenuItem>
+             <DropdownMenuItem className="gap-2 py-2.5">
+                <Wrench className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Service Request</span>
+             </DropdownMenuItem>
+             <DropdownMenuSeparator />
+             <DropdownMenuLabel className="text-[11px] uppercase tracking-widest text-muted-foreground py-2 px-3 font-bold">Administrative</DropdownMenuLabel>
+             <DropdownMenuItem className="gap-2 py-2.5">
+                <Users className="h-4 w-4 text-blue-500" />
+                <span className="text-sm font-semibold">New Employee</span>
+             </DropdownMenuItem>
+             <DropdownMenuItem className="gap-2 py-2.5">
+                <Building2 className="h-4 w-4 text-blue-500" />
+                <span className="text-sm font-semibold">New Location</span>
+             </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <Button variant="ghost" size="icon" className="hidden sm:flex text-muted-foreground hover:text-foreground">
           <LayoutGrid className="h-4 w-4" />
         </Button>
@@ -175,8 +202,8 @@ export function TopNav({ onToggleSidebar, sidebarCollapsed }: TopNavProps) {
           <DropdownMenuContent align="end" className="w-80 p-0 animate-in fade-in slide-in-from-top-2">
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="text-sm font-semibold">Notifications</h3>
-              <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
-                {unreadCount} New
+              <Badge variant="secondary" className="bg-primary text-white hover:bg-primary/90 transition-colors px-2 font-black text-[10px] tracking-widest">
+                {unreadCount} NEW
               </Badge>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
@@ -215,7 +242,7 @@ export function TopNav({ onToggleSidebar, sidebarCollapsed }: TopNavProps) {
               </Avatar>
               <div className="hidden sm:flex flex-col items-start text-left">
                 <span className="text-sm font-bold leading-tight">James Smith</span>
-                <span className="text-[10px] font-medium text-muted-foreground tracking-wide uppercase">System Admin</span>
+                <span className="text-xs font-bold text-muted-foreground tracking-wide uppercase">System Admin</span>
               </div>
               <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
             </Button>
