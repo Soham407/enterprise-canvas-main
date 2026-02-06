@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Shield,
   AlertCircle,
@@ -20,6 +20,7 @@ import {
   Phone,
   Building,
   Car,
+  Camera,
 } from "lucide-react";
 import {
   Card,
@@ -33,7 +34,9 @@ import { cn } from "@/lib/utils";
 import { useAttendance } from "@/hooks/useAttendance";
 import { usePanicAlert } from "@/hooks/usePanicAlert";
 import { useGuardVisitors } from "@/hooks/useGuardVisitors";
+import { useGuardChecklist, useGuardShift } from "@/hooks/useGuardChecklist";
 import { useEmployeeProfileWithFallback } from "@/hooks/useEmployeeProfile";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/src/lib/supabaseClient";
 
@@ -191,17 +194,66 @@ function ExpectedVisitorsSection({ gateLocation }: ExpectedVisitorsSectionProps)
 
 
 export function GuardDashboard() {
-  const { toast } = useToast();
+  const { userId, isLoading: isAuthLoading } = useAuth();
   
   // Get authenticated employee profile (falls back to mock in dev)
   const { 
     employeeId, 
+    guardId,
     guardCode,
     fullName,
     isLoading: isProfileLoading, 
     error: profileError 
   } = useEmployeeProfileWithFallback(DEV_MOCK_EMPLOYEE_ID);
 
+  // Show loading while auth/profile is being fetched
+  if (isAuthLoading || isProfileLoading) {
+    return (
+      <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading your profile...</p>
+      </div>
+    );
+  }
+
+  // Show login prompt if not authenticated (and not in dev mode with mock)
+  if (!employeeId) {
+    return (
+      <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[60vh] gap-4 p-6">
+        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+          <Shield className="h-8 w-8 text-primary" />
+        </div>
+        <h2 className="text-xl font-bold">Authentication Required</h2>
+        <p className="text-sm text-muted-foreground text-center">
+          {profileError || "Please log in to access the Guard Dashboard."}
+        </p>
+        <a href="/login" className="text-sm text-primary hover:underline font-medium">
+          Go to Login →
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <GuardDashboardContent 
+      employeeId={employeeId} 
+      guardId={guardId}
+      fullName={fullName} 
+      guardCode={guardCode} 
+    />
+  );
+}
+
+interface GuardDashboardContentProps {
+  employeeId: string;
+  guardId: string | null;
+  fullName: string | null;
+  guardCode: string | null;
+}
+
+function GuardDashboardContent({ employeeId, guardId, fullName, guardCode }: GuardDashboardContentProps) {
+  const { toast } = useToast();
+  
   const {
     isWithinRange,
     distance,
@@ -214,7 +266,7 @@ export function GuardDashboard() {
     clockIn,
     clockOut,
     refresh,
-  } = useAttendance(employeeId || undefined);
+  } = useAttendance(employeeId, guardId);
 
   const [isClockingIn, setIsClockingIn] = useState(false);
   const [isClockingOut, setIsClockingOut] = useState(false);
@@ -235,25 +287,28 @@ export function GuardDashboard() {
     cancelHold: cancelPanicHold,
   } = usePanicAlert();
 
+  // Shift and Checklist Hooks
+  const shiftInfo = useGuardShift(employeeId);
+  const {
+    items: checklistItems,
+    totalItems: checklistTotal,
+    completedItems: checklistCompleted,
+    isLoading: isChecklistLoading,
+    completeItem: completeChecklistItem,
+    addEvidencePhoto: recordChecklistPhoto,
+  } = useGuardChecklist(employeeId);
+
   // Handle panic button hold release
   const handlePanicRelease = async () => {
-    if (!employeeId) {
-      toast({
-        title: "Not Authenticated",
-        description: "Please log in to use the panic alert.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     const wasHeldLongEnough = endPanicHold();
     if (wasHeldLongEnough) {
       // Use guard's real-time position if available, fallback to gate location
       const currentLat = currentPosition?.latitude ?? gateLocation?.latitude;
       const currentLng = currentPosition?.longitude ?? gateLocation?.longitude;
 
+      // Note: triggerPanic now uses server-side auth (auth.uid())
+      // No need to pass employeeId - it's derived from authenticated session
       const result = await triggerPanic({
-        employeeId: employeeId,
         latitude: currentLat,
         longitude: currentLng,
         locationId: gateLocation?.id,
@@ -276,36 +331,95 @@ export function GuardDashboard() {
     }
   };
 
+  // Geo-fence Monitoring Logic
+  const outOfRangeStartTimeRef = useRef<number | null>(null);
+  const latestRefs = useRef({ currentPosition, gateLocation, distance });
+
+  // Update latest refs to avoid stale closures in timeouts
+  useEffect(() => {
+    latestRefs.current = { currentPosition, gateLocation, distance };
+  }, [currentPosition, gateLocation, distance]);
+
+  useEffect(() => {
+    if (!isClockedIn || isWithinRange) {
+      outOfRangeStartTimeRef.current = null;
+      return;
+    }
+
+    // Guard is clocked in and OUT OF RANGE
+    if (!outOfRangeStartTimeRef.current) {
+      outOfRangeStartTimeRef.current = Date.now();
+    }
+
+    const warningTimeout = setTimeout(() => {
+      toast({
+        title: "⚠️ Warning: Return to Zone",
+        description: "You are outside your assigned geo-fence area. Help has NOT been called yet, but your location is being tracked.",
+        variant: "destructive",
+      });
+    }, 2 * 60 * 1000); // 2 minutes
+
+    const breachTimeout = setTimeout(() => {
+      const { currentPosition: pos, gateLocation: gate, distance: dist } = latestRefs.current;
+      triggerPanic({
+        alertType: "geo_fence_breach",
+        description: `Persistent geo-fence breach. Current distance: ${dist}m.`,
+        locationId: gate?.id,
+        latitude: pos?.latitude,
+        longitude: pos?.longitude,
+      });
+      
+      toast({
+        title: "🚨 Geo-fence Breach Alert Sent!",
+        description: "A persistent breach has been reported to the supervisor.",
+        variant: "destructive",
+      });
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => {
+      clearTimeout(warningTimeout);
+      clearTimeout(breachTimeout);
+    };
+  }, [isClockedIn, isWithinRange, toast, triggerPanic]);
+
   // Fetch visitor statistics
   useEffect(() => {
     async function fetchVisitorStats() {
       try {
+        // Use UTC for consistent timezone handling
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
 
-        // Visitors today
-        const { count: visitorsToday, error: todayError } = await supabase
+        // Build base query - optionally filter by guard's assigned location
+        let todayQuery = supabase
           .from("visitors")
           .select("*", { count: "exact", head: true })
-          .gte("entry_time", today.toISOString());
-
-        if (todayError) throw todayError;
-
-        // Pending checkouts (visitors who entered but haven't exited)
-        const { count: pendingCheckouts, error: pendingError } = await supabase
+          .gte("entry_time", todayUTC.toISOString());
+        
+        let pendingQuery = supabase
           .from("visitors")
           .select("*", { count: "exact", head: true })
-          .gte("entry_time", today.toISOString())
+          .gte("entry_time", todayUTC.toISOString())
           .is("exit_time", null);
 
+        // If guard has an assigned gate location, filter to show only that gate's visitors
+        if (gateLocation?.id) {
+          todayQuery = todayQuery.eq("entry_location_id", gateLocation.id);
+          pendingQuery = pendingQuery.eq("entry_location_id", gateLocation.id);
+        }
+
+        const { count: visitorsToday, error: todayError } = await todayQuery;
+        if (todayError) throw todayError;
+
+        const { count: pendingCheckouts, error: pendingError } = await pendingQuery;
         if (pendingError) throw pendingError;
 
         setVisitorStats({
           visitorsToday: visitorsToday || 0,
           pendingCheckouts: pendingCheckouts || 0,
         });
-      } catch (err) {
-        console.error("Error fetching visitor stats:", err);
+      } catch (err: any) {
+        console.error("Error fetching visitor stats:", err?.message || err);
       } finally {
         setIsLoadingStats(false);
       }
@@ -315,7 +429,46 @@ export function GuardDashboard() {
     // Refresh stats every 30 seconds
     const interval = setInterval(fetchVisitorStats, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [gateLocation?.id]);
+
+  // Handle Checklist Evidence Upload
+  const handleEvidenceUpload = async (itemId: string, file: File | undefined) => {
+    if (!file) return;
+
+    try {
+      toast({ title: "Uploading Evidence...", description: "Please wait.", duration: 2000 });
+      
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${itemId}-${Date.now()}.${fileExt}`;
+      const filePath = `tasks/${fileName}`;
+
+      // Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from('checklist-evidence')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Update task record via hook
+      const result = await recordChecklistPhoto(itemId, filePath);
+
+      if (result.success) {
+        toast({ 
+          title: "Photo Added", 
+          description: "Evidence has been attached to this task.",
+        });
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      console.error("Evidence upload failed:", err);
+      toast({ 
+        title: "Upload Failed", 
+        description: err.message || "Could not upload photo.",
+        variant: "destructive"
+      });
+    }
+  };
 
   // Handle Clock In
   const handleClockIn = async () => {
@@ -611,9 +764,11 @@ export function GuardDashboard() {
         <Card className="border-none shadow-card ring-1 ring-border p-4 bg-muted/20">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-bold uppercase text-muted-foreground">
-              Shift Time
+              {shiftInfo.shiftName || "Shift Time"}
             </span>
-            <span className="text-sm font-bold">08:00 - 20:00</span>
+            <span className="text-sm font-bold">
+              {shiftInfo.isLoading ? "Loading..." : `${shiftInfo.startTime} - ${shiftInfo.endTime}`}
+            </span>
             <Badge
               className={cn(
                 "w-fit text-[8px] mt-1",
@@ -656,63 +811,115 @@ export function GuardDashboard() {
               Daily Checklist
             </CardTitle>
             <Badge variant="outline" className="text-[10px] font-bold">
-              4/6 DONE
+              {isChecklistLoading ? "..." : `${checklistCompleted}/${checklistTotal} DONE`}
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {[
-              {
-                task: "Parking Lights ON/OFF check",
-                status: "Done",
-                time: "06:15 AM",
-              },
-              {
-                task: "Water Pump Motor Status",
-                status: "Done",
-                time: "07:30 AM",
-              },
-              { task: "Secondary Gates Locked", status: "Pending" },
-              { task: "Visitor Register Verified", status: "Pending" },
-            ].map((item, i) => (
-              <div
-                key={i}
-                className="p-4 flex items-center justify-between group cursor-pointer hover:bg-muted/30"
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      "h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5",
-                      item.status === "Done"
-                        ? "bg-success border-success text-white"
-                        : "border-muted"
-                    )}
+            {isChecklistLoading ? (
+              <div className="p-4 flex items-center justify-center">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : checklistItems.length === 0 ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                No checklist assigned yet.
+              </div>
+            ) : (
+              checklistItems.slice(0, 4).map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 flex items-center justify-between group hover:bg-muted/30 transition-colors"
+                >
+                  <div 
+                    className="flex items-start gap-3 flex-1 cursor-pointer"
+                    onClick={async () => {
+                      if (item.status === "pending") {
+                        const result = await completeChecklistItem(item.id);
+                        if (result.success) {
+                          toast({
+                            title: "Task Completed",
+                            description: `"${item.task}" marked as done.`,
+                          });
+                        } else {
+                          toast({
+                            title: "Error",
+                            description: result.error || "Could not save.",
+                            variant: "destructive",
+                          });
+                        }
+                      }
+                    }}
                   >
-                    {item.status === "Done" && (
-                      <CheckCircle2 className="h-3 w-3" />
-                    )}
-                  </div>
-                  <div className="flex flex-col">
-                    <span
+                    <div
                       className={cn(
-                        "text-xs font-bold",
-                        item.status === "Done"
-                          ? "text-muted-foreground line-through"
-                          : "text-foreground"
+                        "h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5",
+                        item.status === "done"
+                          ? "bg-success border-success text-white"
+                          : "border-muted"
                       )}
                     >
-                      {item.task}
-                    </span>
-                    {item.time && (
-                      <span className="text-[9px] text-muted-foreground">
-                        {item.time}
+                      {item.status === "done" && (
+                        <CheckCircle2 className="h-3 w-3" />
+                      )}
+                    </div>
+                    <div className="flex flex-col">
+                      <span
+                        className={cn(
+                          "text-xs font-bold",
+                          item.status === "done"
+                            ? "text-muted-foreground line-through"
+                            : "text-foreground"
+                        )}
+                      >
+                        {item.task}
                       </span>
-                    )}
+                      <div className="flex items-center gap-2 mt-1">
+                        {item.completedAt && (
+                          <span className="text-[9px] text-muted-foreground">
+                            {new Date(item.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                        {item.photos && item.photos.length > 0 && (
+                          <Badge variant="secondary" className="text-[8px] h-3 px-1">
+                            {item.photos.length} PHOTO{item.photos.length > 1 ? 'S' : ''}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Evidence Action */}
+                  <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      title="Add Photo Evidence"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        document.getElementById(`upload-${item.id}`)?.click();
+                      }}
+                    >
+                      <Camera className="h-4 w-4" />
+                    </Button>
+                    <input
+                      type="file"
+                      id={`upload-${item.id}`}
+                      className="hidden"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleEvidenceUpload(item.id, file);
+                        // Reset input so same file can be selected again if needed
+                        e.target.value = '';
+                      }}
+                    />
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
@@ -725,30 +932,38 @@ export function GuardDashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-2 pb-6">
-          <Button
-            variant="outline"
-            className="h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
-          >
-            <PhoneCall className="h-3 w-3 text-primary" /> Police
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
-          >
-            <AlertCircle className="h-3 w-3 text-critical" /> Fire
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
-          >
-            <PhoneCall className="h-3 w-3 text-info" /> Ambulance
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
-          >
-            <PhoneCall className="h-3 w-3 text-success" /> Supervisor
-          </Button>
+          <a href="tel:100" className="inline-flex">
+            <Button
+              variant="outline"
+              className="w-full h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
+            >
+              <Phone className="h-3 w-3 text-primary" /> Police (100)
+            </Button>
+          </a>
+          <a href="tel:101" className="inline-flex">
+            <Button
+              variant="outline"
+              className="w-full h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
+            >
+              <AlertCircle className="h-3 w-3 text-critical" /> Fire (101)
+            </Button>
+          </a>
+          <a href="tel:102" className="inline-flex">
+            <Button
+              variant="outline"
+              className="w-full h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
+            >
+              <Phone className="h-3 w-3 text-info" /> Ambulance (102)
+            </Button>
+          </a>
+          <a href="tel:+919876543210" className="inline-flex">
+            <Button
+              variant="outline"
+              className="w-full h-10 justify-start gap-2 text-xs font-bold border-muted-foreground/20"
+            >
+              <Phone className="h-3 w-3 text-success" /> Supervisor
+            </Button>
+          </a>
         </CardContent>
       </Card>
     </div>

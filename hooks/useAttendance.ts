@@ -56,7 +56,7 @@ function toRadians(degrees: number): number {
   return degrees * (Math.PI / 180);
 }
 
-export function useAttendance(employeeId?: string) {
+export function useAttendance(employeeId?: string, guardId?: string | null) {
   const [state, setState] = useState<AttendanceState>({
     isWithinRange: false,
     distance: null,
@@ -390,11 +390,12 @@ export function useAttendance(employeeId?: string) {
 
     const trackLocation = async () => {
       // Read from ref to avoid stale closure
-      if (!employeeId || !latestPositionRef.current) return;
+      // Note: GPS tracking schema requires guard_id (but column is named employee_id)
+      if (!guardId || !latestPositionRef.current) return;
 
       try {
         await supabase.from("gps_tracking").insert({
-          employee_id: employeeId,
+          employee_id: guardId, // References security_guards(id) despite column name
           latitude: latestPositionRef.current.latitude,
           longitude: latestPositionRef.current.longitude,
           tracked_at: new Date().toISOString(),
@@ -408,7 +409,7 @@ export function useAttendance(employeeId?: string) {
     // Track immediately, then every 5 minutes
     trackLocation();
     gpsIntervalRef.current = setInterval(trackLocation, 5 * 60 * 1000);
-  }, [employeeId]);
+  }, [guardId]);
 
   // Stop GPS tracking
   const stopGpsTracking = useCallback(() => {
@@ -430,14 +431,30 @@ export function useAttendance(employeeId?: string) {
   useEffect(() => {
     fetchGateLocation();
     fetchTodayAttendance();
-  }, [fetchGateLocation, fetchTodayAttendance]);
+    getCurrentPosition(); // Start getting position immediately
+  }, [fetchGateLocation, fetchTodayAttendance, getCurrentPosition]);
 
-  // Start watching position after gate location is loaded
+  // Handle updates when gate location is loaded or changed
   useEffect(() => {
-    if (state.gateLocation) {
-      getCurrentPosition();
+    if (state.gateLocation && state.currentPosition) {
+      // Re-calculate distance if both become available later
+      const { latitude, longitude } = state.currentPosition;
+      const distance = haversineDistance(
+        latitude,
+        longitude,
+        state.gateLocation.latitude,
+        state.gateLocation.longitude
+      );
+      
+      const isWithinRange = distance <= state.gateLocation.geo_fence_radius;
+      
+      setState(prev => ({
+        ...prev,
+        distance: Math.round(distance),
+        isWithinRange
+      }));
     }
-  }, [state.gateLocation, getCurrentPosition]);
+  }, [state.gateLocation]);
 
   // Start GPS tracking if already clocked in
   useEffect(() => {

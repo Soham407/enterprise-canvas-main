@@ -6,6 +6,8 @@ import { supabase } from "@/src/lib/supabaseClient";
 interface EmployeeProfile {
   employeeId: string | null;
   guardId: string | null;
+  residentId: string | null;
+  flatId: string | null;
   guardCode: string | null;
   employeeCode: string | null;
   fullName: string | null;
@@ -28,6 +30,8 @@ export function useEmployeeProfile() {
   const [profile, setProfile] = useState<EmployeeProfile>({
     employeeId: null,
     guardId: null,
+    residentId: null,
+    flatId: null,
     guardCode: null,
     employeeCode: null,
     fullName: null,
@@ -67,8 +71,65 @@ export function useEmployeeProfile() {
 
       if (userError) {
         // User might not have a record in users table yet
-        // This can happen for new users
+        // Try direct lookup via employees.auth_user_id (new schema)
         if (userError.code === "PGRST116") {
+          // Fallback: Try to find employee directly via auth_user_id
+          const { data: directEmployee, error: directError } = await supabase
+            .from("employees")
+            .select("id, employee_code, first_name, last_name")
+            .eq("auth_user_id", user.id)
+            .single();
+
+          if (directEmployee && !directError) {
+            // Found employee directly, check if they're a guard
+            const { data: guardData } = await supabase
+              .from("security_guards")
+              .select("id, guard_code")
+              .eq("employee_id", directEmployee.id)
+              .single();
+
+            const firstName = directEmployee.first_name || "";
+            const lastName = directEmployee.last_name || "";
+            const fullName = [firstName, lastName].filter(Boolean).join(" ").trim() || null;
+
+            setProfile({
+              employeeId: directEmployee.id,
+              guardId: guardData?.id || null,
+              residentId: null,
+              flatId: null,
+              guardCode: guardData?.guard_code || null,
+              employeeCode: directEmployee.employee_code,
+              fullName,
+              role: guardData ? "security_guard" : "employee",
+              isLoading: false,
+              error: null,
+            });
+            return;
+          }
+
+          // Also try residents.auth_user_id
+          const { data: residentData, error: residentError } = await supabase
+            .from("residents")
+            .select("id, resident_code, full_name, flat_id")
+            .eq("auth_user_id", user.id)
+            .single();
+
+          if (residentData && !residentError) {
+            setProfile({
+              employeeId: null,
+              guardId: null,
+              residentId: residentData.id,
+              flatId: residentData.flat_id,
+              guardCode: null,
+              employeeCode: residentData.resident_code,
+              fullName: residentData.full_name,
+              role: "resident",
+              isLoading: false,
+              error: null,
+            });
+            return;
+          }
+
           setProfile((prev) => ({
             ...prev,
             isLoading: false,
@@ -129,6 +190,8 @@ export function useEmployeeProfile() {
       setProfile({
         employeeId: userData.employee_id,
         guardId: guardInfo?.id || null,
+        residentId: null,
+        flatId: null,
         guardCode: guardInfo?.guard_code || null,
         employeeCode: employeeData.employee_code,
         fullName,
@@ -158,6 +221,8 @@ export function useEmployeeProfile() {
           setProfile({
             employeeId: null,
             guardId: null,
+            residentId: null,
+            flatId: null,
             guardCode: null,
             employeeCode: null,
             fullName: null,

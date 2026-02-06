@@ -1,324 +1,218 @@
 -- ============================================================================
 -- Row Level Security (RLS) Policies for Facility Platform
 -- ============================================================================
--- This file contains recommended RLS policies to secure the application
--- Run these after enabling RLS on each table
+-- UPDATED: 2026-02-06
+-- This file reflects the actual deployed RLS policies in production
+-- Uses the new auth_user_id columns and helper functions
 -- ============================================================================
 
 -- ============================================================================
--- 1. PANIC ALERTS - Prevent Impersonation
+-- HELPER FUNCTIONS (Already deployed)
 -- ============================================================================
 
--- Enable RLS on panic_alerts table
-ALTER TABLE panic_alerts ENABLE ROW LEVEL SECURITY;
+-- get_employee_id() - Returns employee.id for current authenticated user
+-- get_guard_id() - Returns security_guards.id for current authenticated guard  
+-- get_resident_id() - Returns residents.id for current authenticated resident
+-- is_guard() - Returns true if current user is a security guard
+-- is_resident() - Returns true if current user is a resident
+-- is_employee() - Returns true if current user is linked to an employee record
+-- has_role(role_name) - Returns true if user has the specified role
+-- get_user_role() - Returns the user's role name from the users table
+
+-- ============================================================================
+-- 1. EMPLOYEES - Base employee data
+-- ============================================================================
+
+-- Employees can view their own record
+-- "Employees can view their own record" ON employees FOR SELECT
+-- USING (auth_user_id = auth.uid());
+
+-- Employees can update limited fields on their own record
+-- "Employees can update their own record" ON employees FOR UPDATE
+-- USING (auth_user_id = auth.uid()) WITH CHECK (auth_user_id = auth.uid());
+
+-- Guards can view other employees (for lookups)
+-- "Guards can view employees" ON employees FOR SELECT
+-- USING (is_guard());
+
+-- Supervisors and managers can view all employees
+-- "Supervisors can view all employees" ON employees FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager') OR has_role('company_hod'));
+
+-- Admins can fully manage employees
+-- "Admins can manage employees" ON employees FOR ALL
+-- USING (has_role('admin'));
+
+-- ============================================================================
+-- 2. SECURITY GUARDS - Guard-specific data
+-- ============================================================================
+
+-- Guards can view their own record using get_guard_id()
+-- "Guards can view their own record" ON security_guards FOR SELECT
+-- USING (id = get_guard_id());
+
+-- Guards can update their own record
+-- "Guards can update their own record" ON security_guards FOR UPDATE
+-- USING (id = get_guard_id()) WITH CHECK (id = get_guard_id());
+
+-- Supervisors and admins can view all guards
+-- "Supervisors can view all guards" ON security_guards FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
+
+-- Admins can manage all guard records
+-- "Admins can manage guards" ON security_guards FOR ALL
+-- USING (has_role('admin'));
+
+-- ============================================================================
+-- 3. PANIC ALERTS - Emergency alert management
+-- ============================================================================
 
 -- Guards can only insert alerts for themselves
-CREATE POLICY "Guards can insert their own panic alerts"
-ON panic_alerts FOR INSERT
-WITH CHECK (
-  guard_id IN (
-    SELECT id FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- "Guards can insert their own panic alerts" ON panic_alerts FOR INSERT
+-- WITH CHECK (guard_id = get_guard_id());
 
 -- Guards can view their own alerts
-CREATE POLICY "Guards can view their own panic alerts"
-ON panic_alerts FOR SELECT
-USING (
-  guard_id IN (
-    SELECT id FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- "Guards can view their own panic alerts" ON panic_alerts FOR SELECT
+-- USING (guard_id = get_guard_id());
 
--- Admins and supervisors can view all alerts
-CREATE POLICY "Supervisors can view all panic alerts"
-ON panic_alerts FOR SELECT
-USING (
-  auth.jwt() ->> 'role' IN ('admin', 'supervisor')
-);
+-- Supervisors, managers, and admins can view all alerts
+-- "Supervisors can view all panic alerts" ON panic_alerts FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
 
--- Supervisors can update/resolve alerts
-CREATE POLICY "Supervisors can resolve panic alerts"
-ON panic_alerts FOR UPDATE
-USING (
-  auth.jwt() ->> 'role' IN ('admin', 'supervisor')
-);
+-- Supervisors and managers can resolve alerts
+-- "Supervisors can resolve panic alerts" ON panic_alerts FOR UPDATE
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
 
 -- ============================================================================
--- 2. SECURITY GUARDS - Protect Guard Data
+-- 4. RESIDENTS - Resident data
 -- ============================================================================
 
-ALTER TABLE security_guards ENABLE ROW LEVEL SECURITY;
-
--- Guards can view their own record
-CREATE POLICY "Guards can view their own record"
-ON security_guards FOR SELECT
-USING (employee_id = auth.uid());
-
--- Guards can update their own record (limited fields)
-CREATE POLICY "Guards can update their own record"
-ON security_guards FOR UPDATE
-USING (employee_id = auth.uid())
-WITH CHECK (employee_id = auth.uid());
-
--- Admins can view all guards
-CREATE POLICY "Admins can view all guards"
-ON security_guards FOR SELECT
-USING (auth.jwt() ->> 'role' = 'admin');
-
--- Admins can insert/update/delete guards
-CREATE POLICY "Admins can manage guards"
-ON security_guards FOR ALL
-USING (auth.jwt() ->> 'role' = 'admin');
-
--- ============================================================================
--- 3. RESIDENTS - Protect Resident Data
--- ============================================================================
-
-ALTER TABLE residents ENABLE ROW LEVEL SECURITY;
-
--- Residents can view their own record
-CREATE POLICY "Residents can view their own record"
-ON residents FOR SELECT
-USING (
-  id = auth.uid() OR
-  employee_id = auth.uid()
-);
+-- Residents can view their own record using auth_user_id
+-- "Residents can view their own record" ON residents FOR SELECT
+-- USING (auth_user_id = auth.uid());
 
 -- Residents can update their own record
-CREATE POLICY "Residents can update their own record"
-ON residents FOR UPDATE
-USING (
-  id = auth.uid() OR
-  employee_id = auth.uid()
-);
+-- "Residents can update their own record" ON residents FOR UPDATE
+-- USING (auth_user_id = auth.uid()) WITH CHECK (auth_user_id = auth.uid());
 
 -- Guards can view residents (for visitor verification)
-CREATE POLICY "Guards can view residents"
-ON residents FOR SELECT
-USING (
-  EXISTS (
-    SELECT 1 FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- "Guards can view residents" ON residents FOR SELECT
+-- USING (is_guard());
 
--- Admins can manage all residents
-CREATE POLICY "Admins can manage residents"
-ON residents FOR ALL
-USING (auth.jwt() ->> 'role' = 'admin');
+-- Supervisors and managers can view all residents
+-- "Supervisors can view all residents" ON residents FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
+
+-- Admins can manage all resident records
+-- "Admins can manage residents" ON residents FOR ALL
+-- USING (has_role('admin'));
 
 -- ============================================================================
--- 4. VISITORS - Secure Visitor Data
+-- 5. VISITORS - Visitor management
 -- ============================================================================
-
-ALTER TABLE visitors ENABLE ROW LEVEL SECURITY;
 
 -- Residents can view visitors to their flat
-CREATE POLICY "Residents can view their flat visitors"
-ON visitors FOR SELECT
-USING (
-  flat_id IN (
-    SELECT flat_id FROM residents WHERE employee_id = auth.uid()
-  )
-);
+-- "Residents can view their flat visitors" ON visitors FOR SELECT
+-- USING (flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid()));
 
--- Residents can insert visitors (pre-approve)
-CREATE POLICY "Residents can invite visitors"
-ON visitors FOR INSERT
-WITH CHECK (
-  flat_id IN (
-    SELECT flat_id FROM residents WHERE employee_id = auth.uid()
-  )
-  AND approved_by_resident = true
-);
+-- Residents can invite visitors (pre-approve)
+-- "Residents can invite visitors" ON visitors FOR INSERT
+-- WITH CHECK (flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid()) AND approved_by_resident = true);
 
 -- Guards can view all visitors
-CREATE POLICY "Guards can view all visitors"
-ON visitors FOR SELECT
-USING (
-  EXISTS (
-    SELECT 1 FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- "Guards can view all visitors" ON visitors FOR SELECT
+-- USING (is_guard());
 
--- Guards can insert visitors (walk-ins)
-CREATE POLICY "Guards can check in visitors"
-ON visitors FOR INSERT
-WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- Guards can insert new visitors (walk-ins)
+-- "Guards can check in visitors" ON visitors FOR INSERT
+-- WITH CHECK (is_guard());
 
 -- Guards can update visitors (check-in/check-out)
-CREATE POLICY "Guards can update visitors"
-ON visitors FOR UPDATE
-USING (
-  EXISTS (
-    SELECT 1 FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- "Guards can update visitors" ON visitors FOR UPDATE
+-- USING (is_guard());
 
--- Admins can manage all visitors
-CREATE POLICY "Admins can manage visitors"
-ON visitors FOR ALL
-USING (auth.jwt() ->> 'role' = 'admin');
+-- Supervisors and managers can view all visitors
+-- "Supervisors can view all visitors" ON visitors FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
+
+-- Admins can manage all visitor records
+-- "Admins can manage visitors" ON visitors FOR ALL
+-- USING (has_role('admin'));
 
 -- ============================================================================
--- 5. ATTENDANCE LOGS - Secure Attendance Data
+-- 6. ATTENDANCE LOGS - Employee attendance
 -- ============================================================================
 
-ALTER TABLE attendance_logs ENABLE ROW LEVEL SECURITY;
+-- Employees can view their own attendance
+-- "Employees can view their own attendance" ON attendance_logs FOR SELECT
+-- USING (employee_id = get_employee_id());
 
--- Guards can view their own attendance
-CREATE POLICY "Guards can view their own attendance"
-ON attendance_logs FOR SELECT
-USING (
-  employee_id IN (
-    SELECT employee_id FROM security_guards WHERE employee_id = auth.uid()
-  )
-);
+-- Employees can insert their own attendance
+-- "Employees can clock in" ON attendance_logs FOR INSERT
+-- WITH CHECK (employee_id = get_employee_id());
 
--- Guards can insert their own attendance
-CREATE POLICY "Guards can clock in/out"
-ON attendance_logs FOR INSERT
-WITH CHECK (
-  employee_id = auth.uid()
-);
+-- Employees can update their own attendance (clock out)
+-- "Employees can update their own attendance" ON attendance_logs FOR UPDATE
+-- USING (employee_id = get_employee_id()) WITH CHECK (employee_id = get_employee_id());
 
--- Guards can update their own attendance (clock out)
-CREATE POLICY "Guards can update their own attendance"
-ON attendance_logs FOR UPDATE
-USING (employee_id = auth.uid())
-WITH CHECK (employee_id = auth.uid());
-
--- Admins can view all attendance
-CREATE POLICY "Admins can view all attendance"
-ON attendance_logs FOR SELECT
-USING (auth.jwt() ->> 'role' = 'admin');
+-- Supervisors and managers can view all attendance
+-- "Supervisors can view all attendance" ON attendance_logs FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
 
 -- ============================================================================
--- 6. GPS TRACKING - Secure Location Data
+-- 7. GPS TRACKING - Location tracking for guards
 -- ============================================================================
 
-ALTER TABLE gps_tracking ENABLE ROW LEVEL SECURITY;
+-- Note: GPS tracking employee_id references security_guards(id), not employees(id)
+-- This is a known schema issue that may need migration
 
 -- Guards can insert their own GPS data
-CREATE POLICY "Guards can insert their own GPS data"
-ON gps_tracking FOR INSERT
-WITH CHECK (employee_id = auth.uid());
+-- "Guards can insert their own GPS data" ON gps_tracking FOR INSERT
+-- WITH CHECK (employee_id = get_guard_id());
 
 -- Guards can view their own GPS history
-CREATE POLICY "Guards can view their own GPS history"
-ON gps_tracking FOR SELECT
-USING (employee_id = auth.uid());
+-- "Guards can view their own GPS history" ON gps_tracking FOR SELECT
+-- USING (employee_id = get_guard_id());
 
--- Supervisors can view all GPS data
-CREATE POLICY "Supervisors can view all GPS data"
-ON gps_tracking FOR SELECT
-USING (auth.jwt() ->> 'role' IN ('admin', 'supervisor'));
+-- Supervisors and managers can view all GPS data
+-- "Supervisors can view all GPS data" ON gps_tracking FOR SELECT
+-- USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
 
 -- ============================================================================
--- 7. STORAGE - Visitor Photos
+-- 8. STORAGE - Visitor Photos (If bucket exists)
 -- ============================================================================
-
--- Enable RLS on storage.objects
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 -- Authenticated users can view visitor photos
-CREATE POLICY "Authenticated users can view visitor photos"
-ON storage.objects FOR SELECT
-USING (
-  bucket_id = 'visitor-photos' 
-  AND auth.role() = 'authenticated'
-);
+-- CREATE POLICY "Authenticated users can view visitor photos"
+-- ON storage.objects FOR SELECT
+-- USING (bucket_id = 'visitor-photos' AND auth.role() = 'authenticated');
 
 -- Guards and service role can upload visitor photos
-CREATE POLICY "Guards can upload visitor photos"
-ON storage.objects FOR INSERT
-WITH CHECK (
-  bucket_id = 'visitor-photos'
-  AND (
-    auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM security_guards WHERE employee_id = auth.uid())
-  )
-);
-
--- Only service role can delete photos (for admin cleanup)
-CREATE POLICY "Service role can delete visitor photos"
-ON storage.objects FOR DELETE
-USING (
-  bucket_id = 'visitor-photos'
-  AND auth.role() = 'service_role'
-);
+-- CREATE POLICY "Guards can upload visitor photos"
+-- ON storage.objects FOR INSERT
+-- WITH CHECK (bucket_id = 'visitor-photos' AND (auth.role() = 'service_role' OR is_guard()));
 
 -- ============================================================================
--- HELPER FUNCTIONS
--- ============================================================================
-
--- Function to check if user is a guard
-CREATE OR REPLACE FUNCTION is_guard()
-RETURNS BOOLEAN AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM security_guards WHERE employee_id = auth.uid()
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Function to check if user is a resident
-CREATE OR REPLACE FUNCTION is_resident()
-RETURNS BOOLEAN AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM residents WHERE employee_id = auth.uid()
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Function to get user's guard_id
-CREATE OR REPLACE FUNCTION get_guard_id()
-RETURNS UUID AS $$
-BEGIN
-  RETURN (
-    SELECT id FROM security_guards WHERE employee_id = auth.uid() LIMIT 1
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Function to get user's resident_id
-CREATE OR REPLACE FUNCTION get_resident_id()
-RETURNS UUID AS $$
-BEGIN
-  RETURN (
-    SELECT id FROM residents WHERE employee_id = auth.uid() LIMIT 1
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ============================================================================
--- USAGE NOTES
+-- DEPLOYMENT NOTES
 -- ============================================================================
 
 /*
-1. Run this file in Supabase SQL Editor after your schema is created
-2. Test each policy with different user roles
-3. Adjust policies based on your specific requirements
-4. Consider adding policies for other tables (flats, buildings, etc.)
-5. Monitor policy performance and add indexes if needed
+SCHEMA CHANGES APPLIED (2026-02-06):
+
+1. Added employees.auth_user_id (UUID, UNIQUE, FK to auth.users)
+2. Added residents.auth_user_id (UUID, UNIQUE, FK to auth.users)
+3. Fixed panic_alerts.resolved_by to reference employees(id) instead of auth.users(id)
+4. Created helper functions using the new auth_user_id columns
+5. Added GPS tracking partitions through December 2026
+6. Recreated all RLS policies to use new helper functions
+
+KNOWN ISSUE:
+- gps_tracking.employee_id still references security_guards(id) instead of employees(id)
+- Column name is misleading but functionality works with get_guard_id()
 
 TESTING:
--- Test as guard
-SELECT set_config('request.jwt.claims', '{"sub": "guard-user-id"}', true);
-SELECT * FROM panic_alerts; -- Should only see own alerts
-
--- Test as admin
-SELECT set_config('request.jwt.claims', '{"sub": "admin-user-id", "role": "admin"}', true);
-SELECT * FROM panic_alerts; -- Should see all alerts
-
-IMPORTANT:
-- Always test policies before deploying to production
-- Use service role only for admin operations
-- Never expose service role key to client
-- Implement additional application-level checks
+To test policies, temporarily set request.jwt.claims in SQL:
+  SELECT set_config('request.jwt.claims', '{"sub": "user-uuid-here"}', true);
+  
+Then query tables to verify access.
 */
