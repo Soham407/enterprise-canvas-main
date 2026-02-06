@@ -33,11 +33,12 @@ import { cn } from "@/lib/utils";
 import { useAttendance } from "@/hooks/useAttendance";
 import { usePanicAlert } from "@/hooks/usePanicAlert";
 import { useGuardVisitors } from "@/hooks/useGuardVisitors";
+import { useEmployeeProfileWithFallback } from "@/hooks/useEmployeeProfile";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/src/lib/supabaseClient";
 
-// Mock employee ID - In production, get this from auth context
-const MOCK_EMPLOYEE_ID = "11111111-1111-1111-1111-111111111111";
+// Fallback for development/testing when not authenticated
+const DEV_MOCK_EMPLOYEE_ID = "11111111-1111-1111-1111-111111111111";
 
 // Expected Visitors Section Component
 interface ExpectedVisitorsSectionProps {
@@ -191,6 +192,16 @@ function ExpectedVisitorsSection({ gateLocation }: ExpectedVisitorsSectionProps)
 
 export function GuardDashboard() {
   const { toast } = useToast();
+  
+  // Get authenticated employee profile (falls back to mock in dev)
+  const { 
+    employeeId, 
+    guardCode,
+    fullName,
+    isLoading: isProfileLoading, 
+    error: profileError 
+  } = useEmployeeProfileWithFallback(DEV_MOCK_EMPLOYEE_ID);
+
   const {
     isWithinRange,
     distance,
@@ -203,7 +214,7 @@ export function GuardDashboard() {
     clockIn,
     clockOut,
     refresh,
-  } = useAttendance(MOCK_EMPLOYEE_ID);
+  } = useAttendance(employeeId || undefined);
 
   const [isClockingIn, setIsClockingIn] = useState(false);
   const [isClockingOut, setIsClockingOut] = useState(false);
@@ -226,6 +237,15 @@ export function GuardDashboard() {
 
   // Handle panic button hold release
   const handlePanicRelease = async () => {
+    if (!employeeId) {
+      toast({
+        title: "Not Authenticated",
+        description: "Please log in to use the panic alert.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const wasHeldLongEnough = endPanicHold();
     if (wasHeldLongEnough) {
       // Use guard's real-time position if available, fallback to gate location
@@ -233,7 +253,7 @@ export function GuardDashboard() {
       const currentLng = currentPosition?.longitude ?? gateLocation?.longitude;
 
       const result = await triggerPanic({
-        employeeId: MOCK_EMPLOYEE_ID,
+        employeeId: employeeId,
         latitude: currentLat,
         longitude: currentLng,
         locationId: gateLocation?.id,
@@ -300,10 +320,10 @@ export function GuardDashboard() {
   // Handle Clock In
   const handleClockIn = async () => {
     setIsClockingIn(true);
-    const success = await clockIn();
+    const result = await clockIn();
     setIsClockingIn(false);
 
-    if (success) {
+    if (result.success) {
       toast({
         title: "Clocked In Successfully",
         description: `Welcome! Your shift has started at ${new Date().toLocaleTimeString()}`,
@@ -311,7 +331,7 @@ export function GuardDashboard() {
     } else {
       toast({
         title: "Clock In Failed",
-        description: "Please ensure you are within the geofenced area.",
+        description: result.error || "Please ensure you are within the geofenced area.",
         variant: "destructive",
       });
     }
