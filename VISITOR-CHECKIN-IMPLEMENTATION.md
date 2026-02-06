@@ -99,8 +99,54 @@ Or create manually in Supabase Dashboard:
 
 - Navigate to Storage → Create Bucket
 - Name: `visitor-photos`
-- Public: Yes
-- Set up RLS policies as shown in the SQL file
+- **Public: No** (Keep bucket private for security)
+- Set up RLS policies to grant access only to authenticated roles
+- Use server-side signed URLs for photo retrieval (see below)
+
+#### Private Storage & Signed URLs
+
+**Important**: Store visitor photos as **private objects** to prevent unauthorized access.
+
+To retrieve photos, generate time-limited signed URLs server-side:
+
+```typescript
+// Server-side function or API route
+async function getVisitorPhotoUrl(photoPath: string) {
+  const { data, error } = await supabase.storage
+    .from("visitor-photos")
+    .createSignedUrl(photoPath, 3600); // 1 hour TTL
+
+  if (error) throw error;
+  return data.signedUrl;
+}
+```
+
+**RLS Policy Example** (add to SQL file):
+
+```sql
+-- Allow authenticated users to read visitor photos
+CREATE POLICY "Authenticated users can view visitor photos"
+ON storage.objects FOR SELECT
+USING (
+  bucket_id = 'visitor-photos'
+  AND auth.role() = 'authenticated'
+);
+
+-- Allow service role to insert photos
+CREATE POLICY "Service role can upload visitor photos"
+ON storage.objects FOR INSERT
+WITH CHECK (
+  bucket_id = 'visitor-photos'
+  AND (auth.role() = 'service_role' OR auth.role() = 'authenticated')
+);
+```
+
+**Best Practices**:
+
+- Use short TTLs (1-24 hours) for signed URLs
+- Generate URLs server-side or with service role credentials
+- Never expose service role keys to the client
+- Implement additional authorization checks based on user roles
 
 ### 2. Integrate into Visitors Page
 

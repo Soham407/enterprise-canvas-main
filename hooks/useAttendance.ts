@@ -70,6 +70,7 @@ export function useAttendance(employeeId?: string) {
 
   const watchIdRef = useRef<number | null>(null);
   const gpsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const latestPositionRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
   // Fetch gate location from company_locations
   const fetchGateLocation = useCallback(async () => {
@@ -152,6 +153,10 @@ export function useAttendance(employeeId?: string) {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+        
+        // Update ref for GPS tracking to avoid stale closures
+        latestPositionRef.current = { latitude, longitude };
+        
         setState((prev) => {
           if (!prev.gateLocation) {
             return {
@@ -297,13 +302,14 @@ export function useAttendance(employeeId?: string) {
     if (gpsIntervalRef.current) return; // Already tracking
 
     const trackLocation = async () => {
-      if (!employeeId || !state.currentPosition) return;
+      // Read from ref to avoid stale closure
+      if (!employeeId || !latestPositionRef.current) return;
 
       try {
         await supabase.from("gps_tracking").insert({
           employee_id: employeeId,
-          latitude: state.currentPosition.latitude,
-          longitude: state.currentPosition.longitude,
+          latitude: latestPositionRef.current.latitude,
+          longitude: latestPositionRef.current.longitude,
           tracked_at: new Date().toISOString(),
           is_mock_location: false,
         });
@@ -315,7 +321,7 @@ export function useAttendance(employeeId?: string) {
     // Track immediately, then every 5 minutes
     trackLocation();
     gpsIntervalRef.current = setInterval(trackLocation, 5 * 60 * 1000);
-  }, [employeeId, state.currentPosition]);
+  }, [employeeId]);
 
   // Stop GPS tracking
   const stopGpsTracking = useCallback(() => {

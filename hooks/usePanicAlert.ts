@@ -45,6 +45,22 @@ export function usePanicAlert() {
 
   /**
    * Trigger a panic alert - inserts into panic_alerts table
+   * 
+   * ⚠️ SECURITY WARNING: This function currently accepts employeeId from the client,
+   * which allows impersonation. For production:
+   * 1. Derive guard identity from authenticated session (supabase.auth.getUser())
+   * 2. Enable Row Level Security (RLS) on panic_alerts and security_guards tables
+   * 3. Add policies that check auth.uid() matches the guard's employee_id
+   * 4. Use server-side functions or service role for validation
+   * 
+   * Example RLS policy:
+   * CREATE POLICY "Guards can insert their own alerts"
+   * ON panic_alerts FOR INSERT
+   * WITH CHECK (
+   *   guard_id IN (
+   *     SELECT id FROM security_guards WHERE employee_id = auth.uid()
+   *   )
+   * );
    */
   const triggerPanic = useCallback(
     async (
@@ -53,7 +69,12 @@ export function usePanicAlert() {
       setState((prev) => ({ ...prev, isTriggering: true, error: null }));
 
       try {
+        // TODO: Replace with server-side validation
+        // const { data: { user } } = await supabase.auth.getUser();
+        // if (!user) throw new Error("Not authenticated");
+        
         // First, lookup the guard_id from security_guards using employee_id
+        // ⚠️ This trusts client-provided employeeId - needs RLS enforcement
         const { data: guardData, error: guardError } = await supabase
           .from("security_guards")
           .select("id")

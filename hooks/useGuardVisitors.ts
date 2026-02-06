@@ -248,9 +248,19 @@ export function useGuardVisitors() {
   /**
    * Refresh all visitor data
    */
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     setState((prev) => ({ ...prev, isLoading: true }));
-    Promise.all([fetchExpectedVisitors(), fetchActiveVisitors()]);
+    try {
+      await Promise.all([fetchExpectedVisitors(), fetchActiveVisitors()]);
+    } catch (error) {
+      console.error("Error refreshing visitor data:", error);
+      setState((prev) => ({
+        ...prev,
+        error: "Failed to refresh visitor data",
+      }));
+    } finally {
+      setState((prev) => ({ ...prev, isLoading: false }));
+    }
   }, [fetchExpectedVisitors, fetchActiveVisitors]);
 
   // Initialize data on mount
