@@ -419,20 +419,21 @@ function GuardDashboardContent({ employeeId, guardId, fullName, guardCode }: Gua
   useEffect(() => {
     async function fetchVisitorStats() {
       try {
-        // Use UTC for consistent timezone handling
+        // Compute local midnight and convert to UTC ISO string to avoid shifting issues
         const today = new Date();
-        const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+        const localMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
+        const todayISO = localMidnight.toISOString();
 
         // Build base query - optionally filter by guard's assigned location
         let todayQuery = supabase
           .from("visitors")
           .select("*", { count: "exact", head: true })
-          .gte("entry_time", todayUTC.toISOString());
+          .gte("entry_time", todayISO);
         
         let pendingQuery = supabase
           .from("visitors")
           .select("*", { count: "exact", head: true })
-          .gte("entry_time", todayUTC.toISOString())
+          .gte("entry_time", todayISO)
           .is("exit_time", null);
 
         // If guard has an assigned gate location, filter to show only that gate's visitors
@@ -490,30 +491,73 @@ function GuardDashboardContent({ employeeId, guardId, fullName, guardCode }: Gua
   const handleEvidenceUpload = async (itemId: string, file: File | undefined) => {
     if (!file) return;
 
+    // Config: Reject files > 10MB
+    const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+    const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+
     try {
+      // 1. File-size guard
+      if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error(`File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max limit is 10MB.`);
+      }
+
+      // 2. Safe extension extraction
+      let fileExt = "bin"; // Default fallback
+      if (file.type) {
+        // Try extracting from MIME type first
+        const mimeParts = file.type.split('/');
+        if (mimeParts.length > 1) {
+          const ext = mimeParts[1].toLowerCase();
+          if (ALLOWED_EXTENSIONS.includes(ext)) {
+            fileExt = ext;
+          }
+        }
+      }
+      
+      // Fallback to name-based extraction only if MIME was inconclusive
+      if (fileExt === "bin" && file.name) {
+        const nameExt = file.name.split('.').pop()?.toLowerCase();
+        if (nameExt && ALLOWED_EXTENSIONS.includes(nameExt)) {
+          fileExt = nameExt;
+        }
+      }
+
       toast({ title: "Uploading Evidence...", description: "Please wait.", duration: 2000 });
       
-      const fileExt = file.name.split('.').pop();
       const fileName = `${itemId}-${Date.now()}.${fileExt}`;
       const filePath = `tasks/${fileName}`;
 
-      // Upload to storage
+      // 3. Upload to storage (supabase.storage.upload)
       const { error: uploadError } = await supabase.storage
         .from('checklist-evidence')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
-      // Update task record via hook
-      const result = await recordChecklistPhoto(itemId, filePath);
+      try {
+        // 4. Update task record (recordChecklistPhoto)
+        const result = await recordChecklistPhoto(itemId, filePath);
 
-      if (result.success) {
-        toast({ 
-          title: "Photo Added", 
-          description: "Evidence has been attached to this task.",
-        });
-      } else {
-        throw new Error(result.error);
+        if (result.success) {
+          toast({ 
+            title: "Photo Added", 
+            description: "Evidence has been attached to this task.",
+          });
+        } else {
+          throw new Error(result.error);
+        }
+      } catch (recordError: any) {
+        // 5. Cleanup orphaned blobs if DB update fails
+        console.error("Database update failed, cleaning up uploaded file:", recordError);
+        const { error: deleteError } = await supabase.storage
+          .from('checklist-evidence')
+          .remove([filePath]);
+        
+        if (deleteError) {
+          console.error("Manual cleanup of orphaned file failed:", deleteError);
+        }
+        
+        throw recordError; // Rethrow to show original error message
       }
     } catch (err: any) {
       console.error("Evidence upload failed:", err);

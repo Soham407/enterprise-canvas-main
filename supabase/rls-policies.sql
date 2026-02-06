@@ -5,6 +5,47 @@
 -- This is a RUNNABLE migration file.
 -- ============================================================================
 
+-- ============================================================================
+-- 0. HELPER FUNCTIONS
+-- ============================================================================
+
+-- Check if user has a specific role
+CREATE OR REPLACE FUNCTION has_role(p_role TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN (get_user_role()::TEXT = p_role);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Check if user is a guard
+CREATE OR REPLACE FUNCTION is_guard()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN has_role('security_guard');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Get employee_id for the authenticated user
+CREATE OR REPLACE FUNCTION get_employee_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (SELECT employee_id FROM users WHERE id = auth.uid() LIMIT 1);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Get guard_id for the authenticated user
+CREATE OR REPLACE FUNCTION get_guard_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN (
+        SELECT g.id FROM security_guards g 
+        JOIN users u ON u.employee_id = g.employee_id 
+        WHERE u.id = auth.uid()
+        LIMIT 1
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
 -- Enable RLS on all tables
 ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE security_guards ENABLE ROW LEVEL SECURITY;
