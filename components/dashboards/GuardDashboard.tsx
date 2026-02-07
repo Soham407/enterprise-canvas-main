@@ -1017,7 +1017,7 @@ function GuardDashboardContent({ employeeId, guardId, fullName, guardCode }: Gua
                         type="file"
                         id={`upload-${item.id}`}
                         className="hidden"
-                        accept="image/*"
+                        accept="image/*,application/pdf,.pdf"
                         capture="environment"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
