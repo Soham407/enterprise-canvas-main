@@ -522,6 +522,16 @@ function GuardDashboardContent({ employeeId, guardId, fullName, guardCode }: Gua
         }
       }
 
+      // Explicitly reject if type is still unknown or unsupported
+      if (fileExt === "bin") {
+        toast({
+          title: "Unsupported File Type",
+          description: `Allowed types: ${ALLOWED_EXTENSIONS.join(', ')}`,
+          variant: "destructive"
+        });
+        return;
+      }
+
       toast({ title: "Uploading Evidence...", description: "Please wait.", duration: 2000 });
       
       const fileName = `${itemId}-${Date.now()}.${fileExt}`;

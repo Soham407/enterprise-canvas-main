@@ -9,11 +9,26 @@
 -- 0. HELPER FUNCTIONS
 -- ============================================================================
 
+-- Get current user's role from the database
+CREATE OR REPLACE FUNCTION get_user_role()
+RETURNS user_role AS $$
+BEGIN
+    RETURN (
+        SELECT r.role_name
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
+        WHERE u.id = auth.uid()
+        LIMIT 1
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
 -- Check if user has a specific role
-CREATE OR REPLACE FUNCTION has_role(p_role TEXT)
+CREATE OR REPLACE FUNCTION has_role(required_role TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN (get_user_role()::TEXT = p_role);
+    -- Match against the enum text value
+    RETURN (get_user_role()::TEXT = required_role);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
@@ -54,6 +69,7 @@ ALTER TABLE residents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE visitors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gps_tracking ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- 1. EMPLOYEES
@@ -163,7 +179,27 @@ USING (flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid()
 
 DROP POLICY IF EXISTS "Residents can invite visitors" ON visitors;
 CREATE POLICY "Residents can invite visitors" ON visitors FOR INSERT
-WITH CHECK (flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid()) AND approved_by_resident = true);
+WITH CHECK (
+    flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid()) 
+    AND approved_by_resident = true
+);
+
+DROP POLICY IF EXISTS "Residents can update their flat visitors" ON visitors;
+CREATE POLICY "Residents can update their flat visitors" ON visitors FOR UPDATE
+USING (
+    flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid())
+    AND exit_time IS NULL -- Only allowed before they exit
+)
+WITH CHECK (
+    flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid())
+);
+
+DROP POLICY IF EXISTS "Residents can delete their flat visitors" ON visitors;
+CREATE POLICY "Residents can delete their flat visitors" ON visitors FOR DELETE
+USING (
+    flat_id IN (SELECT flat_id FROM residents WHERE auth_user_id = auth.uid())
+    AND entry_time > (NOW() - INTERVAL '5 minutes') -- Only allowed if just created or not yet arrived (simulated check)
+);
 
 DROP POLICY IF EXISTS "Guards can view all visitors" ON visitors;
 CREATE POLICY "Guards can view all visitors" ON visitors FOR SELECT
@@ -230,11 +266,17 @@ DROP POLICY IF EXISTS "Supervisors can view all GPS data" ON gps_tracking;
 CREATE POLICY "Supervisors can view all GPS data" ON gps_tracking FOR SELECT
 USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
 
+-- Note: get_guard_id() returns security_guards.id, which maps to the gps_tracking.employee_id column.
+DROP POLICY IF EXISTS "Admins can manage gps_tracking" ON gps_tracking;
+CREATE POLICY "Admins can manage gps_tracking" ON gps_tracking FOR ALL
+USING (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'))
+WITH CHECK (has_role('admin') OR has_role('security_supervisor') OR has_role('society_manager'));
+
 -- ============================================================================
 -- 8. STORAGE - Visitor Photos
 -- ============================================================================
 
-DROP POLICY IF EXISTS "Authenticated users can view visitor photos" ON storage.objects;
+DROP POLICY IF EXISTS "Specific users can view visitor photos" ON storage.objects;
 -- Stricter policy: Only guards, service role, or the resident associated with the photo
 CREATE POLICY "Specific users can view visitor photos"
 ON storage.objects FOR SELECT
@@ -255,3 +297,31 @@ DROP POLICY IF EXISTS "Guards can upload visitor photos" ON storage.objects;
 CREATE POLICY "Guards can upload visitor photos"
 ON storage.objects FOR INSERT
 WITH CHECK (bucket_id = 'visitor-photos' AND (auth.role() = 'service_role' OR is_guard()));
+
+DROP POLICY IF EXISTS "Guards/Admins can delete visitor photos" ON storage.objects;
+CREATE POLICY "Guards/Admins can delete visitor photos"
+ON storage.objects FOR DELETE
+USING (bucket_id = 'visitor-photos' AND (auth.role() = 'service_role' OR has_role('admin') OR is_guard()));
+
+-- ============================================================================
+-- 9. USERS
+-- ============================================================================
+
+DROP POLICY IF EXISTS "Users can view their own profile" ON users;
+CREATE POLICY "Users can view their own profile" ON users FOR SELECT
+USING (id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can update their own profile" ON users;
+CREATE POLICY "Users can update their own profile" ON users FOR UPDATE
+USING (id = auth.uid())
+WITH CHECK (id = auth.uid());
+
+DROP POLICY IF EXISTS "Admins can manage all users" ON users;
+CREATE POLICY "Admins can manage all users" ON users FOR ALL
+USING (has_role('admin'));
+
+DROP POLICY IF EXISTS "Managers can view subordinate user records" ON users;
+CREATE POLICY "Managers can view subordinate user records" ON users FOR SELECT
+USING (
+    has_role('security_supervisor') OR has_role('society_manager') OR has_role('company_hod')
+);
