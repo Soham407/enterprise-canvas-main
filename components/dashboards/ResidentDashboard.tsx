@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Home,
   Users,
@@ -49,10 +49,13 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useResident } from "@/hooks/useResident";
+import { useResidentProfileWithFallback } from "@/hooks/useResidentProfile";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/use-toast";
+import { getSignedVisitorPhotoUrl } from "@/lib/visitorPhotoStorage";
 
-// Mock resident ID - In production, get this from auth context
-const MOCK_RESIDENT_ID = "22222222-2222-2222-2222-222222222222";
+// Fallback for development/testing when not authenticated
+const DEV_MOCK_RESIDENT_ID = "22222222-2222-2222-2222-222222222222";
 
 interface InviteFormData {
   visitor_name: string;
@@ -70,7 +73,97 @@ const initialFormData: InviteFormData = {
   vehicle_number: "",
 };
 
+function VisitorAvatar({ 
+  photoUrl, 
+  name 
+}: { 
+  photoUrl?: string | null; 
+  name: string; 
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  // Fetch signed URL if photoUrl exists
+  useEffect(() => {
+    if (photoUrl) {
+      getSignedVisitorPhotoUrl(photoUrl)
+        .then((signedUrl) => {
+          if (signedUrl) setUrl(signedUrl);
+        })
+        .catch((err) => {
+          console.error("Error fetching signed URL:", err);
+          setUrl(null);
+        });
+    }
+  }, [photoUrl]);
+
+  if (url) {
+    return (
+      <div className="h-10 w-10 rounded-full border bg-muted flex items-center justify-center shrink-0 overflow-hidden relative">
+        <img 
+          src={url} 
+          alt={name} 
+          className="h-full w-full object-cover" 
+          onError={() => setUrl(null)}
+        />
+      </div>
+    );
+  }
+
+  // Fallback to initials
+  return (
+    <div className="h-10 w-10 rounded-full bg-linear-to-br from-primary/20 to-primary/10 flex items-center justify-center shrink-0 border border-primary/10">
+      <span className="text-sm font-bold text-primary">
+        {name.charAt(0).toUpperCase()}
+      </span>
+    </div>
+  );
+}
+
 export function ResidentDashboard() {
+  const { toast } = useToast();
+  const { isLoading: isAuthLoading } = useAuth();
+  
+  // Get authenticated resident profile (falls back to mock in dev)
+  const { 
+    residentId, 
+    fullName: profileFullName,
+    isLoading: isProfileLoading, 
+    error: profileError 
+  } = useResidentProfileWithFallback(DEV_MOCK_RESIDENT_ID);
+
+  // Show loading while auth/profile is being fetched
+  if (isAuthLoading || isProfileLoading) {
+    return (
+      <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading your profile...</p>
+      </div>
+    );
+  }
+
+  // Show login prompt if not authenticated (and not in dev mode with mock)
+  if (!residentId) {
+    return (
+      <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[60vh] gap-4 p-6">
+        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+          <Home className="h-8 w-8 text-primary" />
+        </div>
+        <h2 className="text-xl font-bold">Authentication Required</h2>
+        <p className="text-sm text-muted-foreground text-center">
+          {profileError || "Please log in to access the Resident Dashboard."}
+        </p>
+        <a href="/login" className="text-sm text-primary hover:underline font-medium">
+          Go to Login →
+        </a>
+      </div>
+    );
+  }
+
+  return <ResidentDashboardContent residentId={residentId} />;
+}
+
+// Internal component that receives validated residentId
+function ResidentDashboardContent({ residentId }: { residentId: string }) {
   const { toast } = useToast();
   const {
     resident,
@@ -81,7 +174,7 @@ export function ResidentDashboard() {
     inviteVisitor,
     refresh,
     refreshVisitors,
-  } = useResident(MOCK_RESIDENT_ID);
+  } = useResident(residentId);
 
   const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -212,7 +305,7 @@ export function ResidentDashboard() {
 
       {/* Flat Details Card */}
       <Card className="border-none shadow-card ring-1 ring-border overflow-hidden">
-        <CardHeader className="pb-3 border-b bg-gradient-to-r from-primary/5 to-transparent">
+        <CardHeader className="pb-3 border-b bg-linear-to-r from-primary/5 to-transparent">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-bold uppercase flex items-center gap-2">
               <Home className="h-4 w-4 text-primary" />
@@ -496,11 +589,10 @@ export function ResidentDashboard() {
                   className="p-4 flex items-center gap-4 hover:bg-muted/30 transition-colors"
                 >
                   {/* Avatar */}
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-primary">
-                      {visitor.visitor_name.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
+                  <VisitorAvatar 
+                    photoUrl={visitor.photo_url} 
+                    name={visitor.visitor_name} 
+                  />
 
                   {/* Details */}
                   <div className="flex-1 min-w-0">

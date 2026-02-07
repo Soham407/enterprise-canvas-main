@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Public_Sans, Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers";
+import { AuthProvider } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/sonner";
 
 const publicSans = Public_Sans({ 
@@ -30,8 +31,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <Toaster position="top-right" closeButton richColors />
+          <AuthProvider>
+            {children}
+            <Toaster position="top-right" closeButton richColors />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

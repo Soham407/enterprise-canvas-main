@@ -46,14 +46,11 @@ export function usePanicAlert() {
   /**
    * Trigger a panic alert - inserts into panic_alerts table
    * 
-   * ⚠️ SECURITY WARNING: This function currently accepts employeeId from the client,
-   * which allows impersonation. For production:
-   * 1. Derive guard identity from authenticated session (supabase.auth.getUser())
-   * 2. Enable Row Level Security (RLS) on panic_alerts and security_guards tables
-   * 3. Add policies that check auth.uid() matches the guard's employee_id
-   * 4. Use server-side functions or service role for validation
+   * ✅ This function now uses server-side authentication to derive guard identity.
+   * The guard_id is looked up using the authenticated user's ID (auth.uid()),
+   * preventing any impersonation attacks.
    * 
-   * Example RLS policy:
+   * RLS Policy Required:
    * CREATE POLICY "Guards can insert their own alerts"
    * ON panic_alerts FOR INSERT
    * WITH CHECK (
@@ -64,25 +61,39 @@ export function usePanicAlert() {
    */
   const triggerPanic = useCallback(
     async (
-      params: TriggerPanicParams,
+      params: Omit<TriggerPanicParams, 'employeeId'> & { employeeId?: string },
     ): Promise<{ success: boolean; alertId?: string; error?: string }> => {
       setState((prev) => ({ ...prev, isTriggering: true, error: null }));
 
       try {
-        // TODO: Replace with server-side validation
-        // const { data: { user } } = await supabase.auth.getUser();
-        // if (!user) throw new Error("Not authenticated");
+        // ✅ Server-side authentication: Get the authenticated user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
         
-        // First, lookup the guard_id from security_guards using employee_id
-        // ⚠️ This trusts client-provided employeeId - needs RLS enforcement
+        if (authError || !user) {
+          throw new Error("Not authenticated. Please log in to use the panic alert.");
+        }
+
+        // ✅ Lookup guard_id via employees table using auth_user_id
+        // 1. Get employee_id from auth_user_id
+        const { data: employeeData, error: empError } = await supabase
+          .from("employees")
+          .select("id")
+          .eq("auth_user_id", user.id)
+          .single();
+
+        if (empError || !employeeData) {
+           throw new Error("Employee record not found for this user.");
+        }
+
+        // 2. Get guard_id from employee_id
         const { data: guardData, error: guardError } = await supabase
           .from("security_guards")
           .select("id")
-          .eq("employee_id", params.employeeId)
+          .eq("employee_id", employeeData.id)
           .single();
 
         if (guardError || !guardData) {
-          throw new Error("Guard record not found for this employee");
+          throw new Error("Guard record not found. Ensure your account is linked to a guard profile.");
         }
 
         const { data, error } = await supabase

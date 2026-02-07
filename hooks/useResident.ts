@@ -36,6 +36,7 @@ interface Visitor {
   phone: string | null;
   vehicle_number: string | null;
   purpose: string | null;
+  photo_url: string | null;
   entry_time: string | null;
   exit_time: string | null;
   approved_by_resident: boolean | null;
@@ -157,6 +158,7 @@ export function useResident(residentId?: string) {
           phone,
           vehicle_number,
           purpose,
+          photo_url,
           entry_time,
           exit_time,
           approved_by_resident,

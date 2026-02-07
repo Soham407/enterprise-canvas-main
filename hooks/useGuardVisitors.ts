@@ -30,6 +30,7 @@ interface ActiveVisitor {
   phone: string | null;
   vehicle_number: string | null;
   purpose: string | null;
+  photo_url: string | null;
   entry_time: string;
   flat: {
     flat_number: string;
@@ -108,12 +109,13 @@ export function useGuardVisitors() {
         isLoading: false,
         error: null,
       }));
-    } catch (err) {
-      console.error("Error fetching expected visitors:", err);
+    } catch (err: any) {
+      const message = err?.message || "Failed to load expected visitors";
+      console.error("Error fetching expected visitors:", message);
       setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: "Failed to load expected visitors",
+        error: message,
       }));
     }
   }, []);
@@ -135,6 +137,7 @@ export function useGuardVisitors() {
           phone,
           vehicle_number,
           purpose,
+          photo_url,
           entry_time,
           flats (
             flat_number,
@@ -157,6 +160,7 @@ export function useGuardVisitors() {
         phone: v.phone as string | null,
         vehicle_number: v.vehicle_number as string | null,
         purpose: v.purpose as string | null,
+        photo_url: v.photo_url as string | null,
         entry_time: v.entry_time as string,
         flat: v.flats as ActiveVisitor["flat"],
       }));
@@ -165,8 +169,8 @@ export function useGuardVisitors() {
         ...prev,
         activeVisitors: visitors,
       }));
-    } catch (err) {
-      console.error("Error fetching active visitors:", err);
+    } catch (err: any) {
+      console.error("Error fetching active visitors:", err?.message || err);
     }
   }, []);
 
@@ -252,11 +256,11 @@ export function useGuardVisitors() {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
       await Promise.all([fetchExpectedVisitors(), fetchActiveVisitors()]);
-    } catch (error) {
-      console.error("Error refreshing visitor data:", error);
+    } catch (error: any) {
+      console.error("Error refreshing visitor data:", error?.message || error);
       setState((prev) => ({
         ...prev,
-        error: "Failed to refresh visitor data",
+        error: error?.message || "Failed to refresh visitor data",
       }));
     } finally {
       setState((prev) => ({ ...prev, isLoading: false }));
